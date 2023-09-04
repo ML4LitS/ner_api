@@ -1,4 +1,23 @@
+"""
+Flask App for NER-based Annotations using QEB8L Model
 
+Author: Santosh Tirunagari
+
+This Flask application serves as a platform for performing Named Entity Recognition (NER) annotations using the QEB8L model.
+Named Entity Recognition is a natural language processing task that involves identifying entities such as names of persons, organizations,
+locations, etc., in text. The QEB8L model is a state-of-the-art NER model known for its accuracy and performance.
+
+Usage:
+1. Install the required dependencies by running: `pip install flask`
+2. Run this Flask app and access it through a web browser.
+3. Paste the text you want to annotate in the provided text area.
+4. Click the 'Annotate' button to submit the text to the QEB8L NER model.
+5. The annotated entities will be highlighted in the displayed text.
+
+This application demonstrates the integration of the QEB8L NER model with a web interface using Flask, making it user-friendly
+and accessible for NER annotation tasks. 
+
+"""
 
 from flask import Flask, request, jsonify, render_template
 import random
