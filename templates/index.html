@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Text Annotator</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <link rel="stylesheet" type="text/css" href="/static/style.css">
+</head>
+<body>
+    <textarea id="input-text" maxlength="2500"></textarea>
+    <p id="char-limit-note">Please limit your input to approximately 250 words.</p>
+    <button id="annotate-button">Annotate</button><br/>
+    <div id="output"></div>
+
+    <script>
+        $('#annotate-button').click(function() {
+            $.post('http://{{ host }}:5000/annotate', { text: $('#input-text').val() }, function(data) {
+                var text = $('#input-text').val();
+                var result = '';
+                var index = 0;
+                data.sort((a, b) => a.start - b.start);
+                for (var i = 0; i < data.length; i++) {
+                    var annotation = data[i];
+                    var color = '';
+                    switch(annotation.entity_group) {
+                        case 'OG': color = 'rgba(255, 77, 77,' + annotation.score + ')'; break;
+                        case 'GP': color = 'rgba(77, 255, 77,' + annotation.score + ')'; break;
+                        case 'DS': color = 'rgba(135, 135, 255,' + annotation.score + ')'; break;
+                        case 'CD': color = 'rgba(255, 255, 77,'+ annotation.score + ')'; break;
+                    }
+                    result += text.substring(index, annotation.start);
+                    result += '<span class="annotation" style="background-color:' + color + ';">'
+                            + '<span class="score">' + annotation.score + '</span>'
+                            + text.substring(annotation.start, annotation.end)
+                            + '<span class="entity">' + annotation.entity_group + '</span>'
+                            + '</span>';
+                    index = annotation.end;
+                }
+                result += text.substring(index);
+                $('#output').html(result);
+            });
+        });
+    </script>
+
+</body>
+</html>
+
