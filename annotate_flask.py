@@ -1,3 +1,5 @@
+
+
 from flask import Flask, request, jsonify, render_template
 import random
 import socket
@@ -11,7 +13,7 @@ from optimum.onnxruntime.configuration import AutoQuantizationConfig, AutoCalibr
 
 app = Flask(__name__)
 
-model_path_quantised = '/hps/software/users/literature/textmining/test_pipeline/ml_filter_pipeline/ml_fp_filter/quantised'
+model_path_quantised = 'PATH TO THE QUANTISED MODEL'
 model_quantized = ORTModelForTokenClassification.from_pretrained(model_path_quantised,
                                                                  file_name="model_quantized.onnx")
 tokenizer_quantized = AutoTokenizer.from_pretrained(model_path_quantised, model_max_length=512, batch_size=4,
