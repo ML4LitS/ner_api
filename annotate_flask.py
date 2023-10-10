@@ -20,6 +20,13 @@ and accessible for NER annotation tasks.
 """
 
 from flask import Flask, request, jsonify, render_template
+
+from flask_cors import CORS
+
+app = Flask(__name__)
+CORS(app)
+
+
 import random
 import socket
 import numpy as np
@@ -30,9 +37,19 @@ from transformers import AutoTokenizer
 from optimum.onnxruntime import ORTQuantizer, ORTModelForTokenClassification
 from optimum.onnxruntime.configuration import AutoQuantizationConfig, AutoCalibrationConfig
 
+import sys
+sys.path.append('.')
+
+# from transformers import set_auth_token
+#
+# # Set the token
+# set_auth_token('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')
+
+
+from entity_linking import retrieve_similar_terms_with_fuzzy_batched
 app = Flask(__name__)
 
-model_path_quantised = 'PATH TO THE QUANTISED MODEL'
+model_path_quantised = '/home/stirunag/environments/models/quantised/'
 model_quantized = ORTModelForTokenClassification.from_pretrained(model_path_quantised,
                                                                  file_name="model_quantized.onnx")
 tokenizer_quantized = AutoTokenizer.from_pretrained(model_path_quantised, model_max_length=512, batch_size=4,
@@ -40,6 +57,18 @@ tokenizer_quantized = AutoTokenizer.from_pretrained(model_path_quantised, model_
 
 ner_quantized = pipeline("token-classification", model=model_quantized, tokenizer=tokenizer_quantized,
                          aggregation_strategy="first")
+
+def mapToURL(entity_group, id):
+    if not id:
+        return "#"
+    switcher = {
+        'GP': f"https://www.uniprot.org/uniprotkb/{id}/entry",
+        'DS': f"http://linkedlifedata.com/resource/umls-concept/{id}",
+        'OG': f"http://identifiers.org/taxonomy/{id}",
+        'CD': f"https://www.ebi.ac.uk/chebi/searchId.do?chebiId={id}"
+    }
+    return switcher.get(entity_group, "#")
+
 
 print("Loading.... finished!!!")
 def merge_with_same_spans(x_list):
@@ -111,6 +140,52 @@ def annotate_cli():
 
     with open('annotation_cli_log.txt', 'a') as file:
         json.dump({'Input': input_text, 'Output': result}, file)
+        file.write('\n')
+
+    return jsonify(x_list_)
+
+@app.route('/annotate_link_cli', methods=['POST'])
+def annotate_link_cli():
+    input_text = request.form.get('text')
+    if not input_text:
+        return 'No text provided', 400
+
+    output = ner_quantized(input_text)
+    result = [{k: round(float(v), 3) if isinstance(v, np.float32) else v for k, v in res.items()} for res in output]
+
+    if not result:
+        return jsonify([])
+
+    x_list_ = []
+
+    # Extracting terms and their corresponding entity groups
+    term_entity_pairs = []
+    for ent in result:
+        if input_text[int(ent['start']):int(ent['end'])] in ['19', 'COVID', 'COVID-19']:
+            ent['entity_group'] = 'DS'
+        term_entity_pairs.append((input_text[int(ent['start']):int(ent['end'])], ent['entity_group']))
+
+    # Retrieving mapped terms for each entity pair
+    mapped_terms_dict = {}
+    for term, entity_group in term_entity_pairs:
+        mapped_terms = retrieve_similar_terms_with_fuzzy_batched([term], entity_group)
+        mapped_terms_dict[term] = mapped_terms[term]
+
+    # Processing results and building output
+    for ent in result:
+        term = input_text[int(ent['start']):int(ent['end'])]
+        if mapped_terms_dict[term][0][1] > 30:
+            ent_id = mapped_terms_dict[term][0][2]
+            mapped_term = mapped_terms_dict[term][0][0]
+            url = mapToURL(ent['entity_group'], ent_id)
+            x_list_.append([ent['start'], ent['end'], ent['entity_group'], mapped_term, ent['score'], ent_id, url])
+        else:
+            url = mapToURL(ent['entity_group'], None)
+            x_list_.append([ent['start'], ent['end'], ent['entity_group'], term, ent['score'], None, url])
+
+    # Logging
+    with open('annotation_cli_log.txt', 'a') as file:
+        json.dump({'Input': input_text, 'Output': x_list_}, file)
         file.write('\n')
 
     return jsonify(x_list_)
