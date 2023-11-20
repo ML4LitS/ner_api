@@ -49,7 +49,7 @@ sys.path.append('.')
 from entity_linking import retrieve_similar_terms_with_fuzzy_batched
 app = Flask(__name__)
 
-model_path_quantised = '/home/stirunag/environments/models/quantised/'
+model_path_quantised = '/home/stirunag/environments/models/enriched_quantised/'
 model_quantized = ORTModelForTokenClassification.from_pretrained(model_path_quantised,
                                                                  file_name="model_quantized.onnx")
 tokenizer_quantized = AutoTokenizer.from_pretrained(model_path_quantised, model_max_length=512, batch_size=4,
@@ -65,7 +65,11 @@ def mapToURL(entity_group, id):
         'GP': f"https://www.uniprot.org/uniprotkb/{id}/entry",
         'DS': f"http://linkedlifedata.com/resource/umls-concept/{id}",
         'OG': f"http://identifiers.org/taxonomy/{id}",
-        'CD': f"https://www.ebi.ac.uk/chebi/searchId.do?chebiId={id}"
+        'CD': f"https://www.ebi.ac.uk/chebi/searchId.do?chebiId={id}",
+        'EM': "#",
+        'GO': "#",
+        'RS': "#",
+        'AN': "#"
     }
     return switcher.get(entity_group, "#")
 
@@ -144,6 +148,51 @@ def annotate_cli():
 
     return jsonify(x_list_)
 
+# @app.route('/annotate_link_cli', methods=['POST'])
+# def annotate_link_cli():
+#     input_text = request.form.get('text')
+#     if not input_text:
+#         return 'No text provided', 400
+#
+#     output = ner_quantized(input_text)
+#     result = [{k: round(float(v), 3) if isinstance(v, np.float32) else v for k, v in res.items()} for res in output]
+#
+#     if not result:
+#         return jsonify([])
+#
+#     x_list_ = []
+#     # Extracting terms and their corresponding entity groups
+#     term_entity_pairs = []
+#     for ent in result:
+#         if input_text[int(ent['start']):int(ent['end'])] in ['19', 'COVID', 'COVID-19']:
+#             ent['entity_group'] = 'DS'
+#         term_entity_pairs.append((input_text[int(ent['start']):int(ent['end'])], ent['entity_group']))
+#
+#     # Retrieving mapped terms for each entity pair
+#     mapped_terms_dict = {}
+#     for term, entity_group in term_entity_pairs:
+#         mapped_terms = retrieve_similar_terms_with_fuzzy_batched([term], entity_group)
+#         mapped_terms_dict[term] = mapped_terms[term]
+#
+#     # Processing results and building output
+#     for ent in result:
+#         term = input_text[int(ent['start']):int(ent['end'])]
+#         if mapped_terms_dict[term][0][1] > 30:
+#             ent_id = mapped_terms_dict[term][0][2]
+#             mapped_term = mapped_terms_dict[term][0][0]
+#             url = mapToURL(ent['entity_group'], ent_id)
+#             x_list_.append([ent['start'], ent['end'], ent['entity_group'], mapped_term, ent['score'], ent_id, url])
+#         else:
+#             url = mapToURL(ent['entity_group'], None)
+#             x_list_.append([ent['start'], ent['end'], ent['entity_group'], term, ent['score'], None, url])
+#
+#     # Logging
+#     with open('annotation_cli_log.txt', 'a') as file:
+#         json.dump({'Input': input_text, 'Output': x_list_}, file)
+#         file.write('\n')
+#
+#     return jsonify(x_list_)
+
 @app.route('/annotate_link_cli', methods=['POST'])
 def annotate_link_cli():
     input_text = request.form.get('text')
@@ -158,30 +207,28 @@ def annotate_link_cli():
 
     x_list_ = []
 
-    # Extracting terms and their corresponding entity groups
-    term_entity_pairs = []
-    for ent in result:
-        if input_text[int(ent['start']):int(ent['end'])] in ['19', 'COVID', 'COVID-19']:
-            ent['entity_group'] = 'DS'
-        term_entity_pairs.append((input_text[int(ent['start']):int(ent['end'])], ent['entity_group']))
+    # New entities to exclude from entity linking
+    exclude_entity_linking = {'EM', 'GO', 'RS', 'AN'}
 
-    # Retrieving mapped terms for each entity pair
-    mapped_terms_dict = {}
-    for term, entity_group in term_entity_pairs:
-        mapped_terms = retrieve_similar_terms_with_fuzzy_batched([term], entity_group)
-        mapped_terms_dict[term] = mapped_terms[term]
-
-    # Processing results and building output
     for ent in result:
         term = input_text[int(ent['start']):int(ent['end'])]
-        if mapped_terms_dict[term][0][1] > 30:
-            ent_id = mapped_terms_dict[term][0][2]
-            mapped_term = mapped_terms_dict[term][0][0]
-            url = mapToURL(ent['entity_group'], ent_id)
-            x_list_.append([ent['start'], ent['end'], ent['entity_group'], mapped_term, ent['score'], ent_id, url])
+        entity_group = ent['entity_group']
+
+        # Check if entity group is not in the exclude list
+        if entity_group not in exclude_entity_linking:
+            # Call entity linking for allowed entity groups
+            mapped_terms = retrieve_similar_terms_with_fuzzy_batched([term], entity_group)
+            if mapped_terms and mapped_terms[term][0][1] > 30:
+                ent_id = mapped_terms[term][0][2]
+                mapped_term = mapped_terms[term][0][0]
+                url = mapToURL(entity_group, ent_id)
+                x_list_.append([ent['start'], ent['end'], entity_group, mapped_term, ent['score'], ent_id, url])
+            else:
+                url = mapToURL(entity_group, None)
+                x_list_.append([ent['start'], ent['end'], entity_group, term, ent['score'], None, url])
         else:
-            url = mapToURL(ent['entity_group'], None)
-            x_list_.append([ent['start'], ent['end'], ent['entity_group'], term, ent['score'], None, url])
+            # For new entities, directly add them to the list without linking
+            x_list_.append([ent['start'], ent['end'], entity_group, term, ent['score'], None, None])
 
     # Logging
     with open('annotation_cli_log.txt', 'a') as file:
@@ -189,7 +236,6 @@ def annotate_link_cli():
         file.write('\n')
 
     return jsonify(x_list_)
-
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
